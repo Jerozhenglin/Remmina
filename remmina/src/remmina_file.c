@@ -349,6 +349,7 @@ gint remmina_file_get_int(RemminaFile *remminafile, const gchar *setting, gint d
 	value = g_hash_table_lookup(remminafile->settings, setting);
 	return value == NULL ? default_value : (value[0] == 't' ? TRUE : atoi(value));
 }
+
 static GKeyFile*
 remmina_file_get_keyfile(RemminaFile *remminafile)
 {
