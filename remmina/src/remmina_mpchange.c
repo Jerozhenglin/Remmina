@@ -55,6 +55,7 @@ struct mpchanger_params {
 	gchar *group;
 
 	GtkEntry *eGroup, *eUsername, *eDomain;
+	GtkEntry *ePassword1, *ePassword2;
 	GtkListStore* store;
 	GtkDialog* dialog;
 	GtkTreeView* table;
@@ -160,6 +161,7 @@ static void remmina_mpchange_dochange(gchar* fname, struct mpchanger_params* mpc
 	RemminaFile* remminafile;
 
 	remminafile = remmina_file_load(fname);
+	printf("GIO: setting password of %s to %s\n", fname, mpcp->password);
 	remmina_file_store_secret_plugin_password(remminafile, "password", mpcp->password);
 	remmina_file_free(remminafile);
 
@@ -169,11 +171,31 @@ static void remmina_mpchange_dochange_clicked(GtkButton *btn, gpointer user_data
 {
 	TRACE_CALL("remmina_mpchange_dochange_clicked");
 	struct mpchanger_params* mpcp = (struct mpchanger_params*)user_data;
-	// GtkDialog* dialog = mpcp->dialog;
+	const gchar *passwd1, *passwd2;
+
 	GtkTreeIter iter;
 
 	if (!gtk_tree_model_get_iter_first(GTK_TREE_MODEL(mpcp->store), &iter))
 		return;
+
+	passwd1 = gtk_entry_get_text(mpcp->ePassword1);
+	passwd2 = gtk_entry_get_text(mpcp->ePassword2);
+
+	if (g_strcmp0(passwd1, passwd2) != 0) {
+		GtkWidget *msgDialog;
+		msgDialog = gtk_message_dialog_new(GTK_WINDOW(mpcp->dialog),
+                                 GTK_DIALOG_DESTROY_WITH_PARENT,
+                                 GTK_MESSAGE_ERROR,
+                                 GTK_BUTTONS_CLOSE,
+                                 _("The passwords do not match"));
+		gtk_dialog_run(GTK_DIALOG (msgDialog));
+		gtk_widget_destroy(msgDialog);
+		return;
+	}
+
+	g_free(mpcp->password);
+	mpcp->password = g_strdup(passwd1);
+
 	do {
 		gchar* fname;
 		gboolean sel;
@@ -185,7 +207,7 @@ static void remmina_mpchange_dochange_clicked(GtkButton *btn, gpointer user_data
 		g_free(fname);
 	} while(gtk_tree_model_iter_next(GTK_TREE_MODEL(mpcp->store), &iter));
 
-
+	gtk_dialog_response(mpcp->dialog, 1);
 
 }
 
@@ -213,9 +235,7 @@ static void remmina_mpchange_searchfield_changed(GtkSearchEntry *se, gpointer us
 	mpcp->store = gtk_list_store_new(NUM_COLS, G_TYPE_BOOLEAN, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING, G_TYPE_STRING);
 	remmina_file_manager_iterate((GFunc) remmina_mpchange_file_list_callback, (gpointer)mpcp);
 
-	printf("GIO: #1\n");
 	gtk_tree_view_set_model(mpcp->table, GTK_TREE_MODEL(mpcp->store));
-	printf("GIO: #2\n");
 
 }
 
@@ -227,10 +247,7 @@ static gboolean remmina_file_multipasswd_changer_mt(gpointer d)
 	GtkDialog* dialog;
 	GtkWindow* mainwindow;
 	GtkCellRendererToggle *toggle;
-	GtkEntry *ePassword1, *ePassword2;
 
-
-	printf("GIO: multipasschanger called for username = %s\n", mpcp->username);
 
 	/* The multiple passowrd changer works only when a secret plugin is available */
 	if (remmina_plugin_manager_get_secret_plugin() == NULL)
@@ -248,7 +265,6 @@ static gboolean remmina_file_multipasswd_changer_mt(gpointer d)
 		gtk_window_set_transient_for(GTK_WINDOW(dialog), mainwindow);
 
 
-
 	mpcp->eGroup = GTK_ENTRY(GET_DIALOG_OBJECT("groupEntry"));
 	gtk_entry_set_text(mpcp->eGroup, mpcp->group);
 	g_signal_connect(G_OBJECT(mpcp->eGroup), "changed", G_CALLBACK(remmina_mpchange_searchfield_changed), (gpointer)mpcp);
@@ -261,11 +277,11 @@ static gboolean remmina_file_multipasswd_changer_mt(gpointer d)
 	gtk_entry_set_text(mpcp->eDomain, mpcp->domain);
 	g_signal_connect(G_OBJECT(mpcp->eDomain), "changed", G_CALLBACK(remmina_mpchange_searchfield_changed), (gpointer)mpcp);
 
-	ePassword1 = GTK_ENTRY(GET_DIALOG_OBJECT("password1Entry"));
-	gtk_entry_set_text(ePassword1, mpcp->password);
+	mpcp->ePassword1 = GTK_ENTRY(GET_DIALOG_OBJECT("password1Entry"));
+	gtk_entry_set_text(mpcp->ePassword1, mpcp->password);
 
-	ePassword2 = GTK_ENTRY(GET_DIALOG_OBJECT("password2Entry"));
-	gtk_entry_set_text(ePassword2, mpcp->password);
+	mpcp->ePassword2 = GTK_ENTRY(GET_DIALOG_OBJECT("password2Entry"));
+	gtk_entry_set_text(mpcp->ePassword2, mpcp->password);
 
 
 	mpcp->store = NULL;
@@ -275,13 +291,12 @@ static gboolean remmina_file_multipasswd_changer_mt(gpointer d)
 	/* Fire a fake searchfield changed, so a new list store is created */
 	remmina_mpchange_searchfield_changed(NULL, (gpointer)mpcp);
 
-
 	toggle = GTK_CELL_RENDERER_TOGGLE(GET_DIALOG_OBJECT("cellrenderertoggle1"));
 	g_signal_connect(G_OBJECT(toggle), "toggled", G_CALLBACK(remmina_mpchange_checkbox_toggle), (gpointer)mpcp);
 
 	mpcp->btnDoChange = GTK_BUTTON(GET_DIALOG_OBJECT("btnDoChange"));
 	g_signal_connect(mpcp->btnDoChange, "clicked", G_CALLBACK(remmina_mpchange_dochange_clicked), (gpointer)mpcp);
-	g_signal_connect(dialog, "response", G_CALLBACK(gtk_widget_destroy), NULL);
+	// g_signal_connect(dialog, "response", G_CALLBACK(gtk_widget_destroy), NULL);
 
 	gtk_dialog_run(dialog);
 	gtk_widget_destroy(GTK_WIDGET(dialog));
@@ -299,15 +314,13 @@ static gboolean remmina_file_multipasswd_changer_mt(gpointer d)
 void
 remmina_mpchange_schedule(gboolean has_domain, const gchar *group, const gchar *domain, const gchar *username, const gchar *password)
 {
-	// We usually get called in a subthread after a successful connection.
+	// We could also be called in a subthread after a successful connection
+	// (not currently implemented)
 	// So we just schedule the multipassword changer to be executed on
 	// the main thread
 
 	TRACE_CALL("remmina_mpchange_schedule");
 	struct mpchanger_params *mpcp;
-
-	printf("GIO: remmina_mpchange_schedule\n");
-
 
 	if (remmina_pref.mpchange_enable) {
 		mpcp = g_malloc0(sizeof(struct mpchanger_params));
