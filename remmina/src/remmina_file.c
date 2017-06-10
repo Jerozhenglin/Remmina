@@ -458,6 +458,28 @@ void remmina_file_save(RemminaFile *remminafile)
 	remmina_main_update_file_datetime(remminafile);
 }
 
+void remmina_file_store_secret_plugin_password(RemminaFile *remminafile, const gchar* key, const gchar* value)
+{
+	TRACE_CALL("remmina_file_store_secret_plugin_password");
+
+	/* Only change the password in the keyring. This function
+	 * is a shortcut which avoids updating of date/time of .pref file
+	 * when possible, and is used by the mpchanger */
+	RemminaSecretPlugin* plugin;
+	const gchar *unencval;
+
+	unencval = remmina_file_get_string(remminafile, key);
+	if (g_strcmp0(unencval, ".") != 0) {
+		// Unfortunately we must update the .remmina file too (its date/time will change)
+		remmina_file_set_string(remminafile, key, value);
+		remmina_file_save(remminafile);
+	} else {
+		// Only update secret store
+		plugin = remmina_plugin_manager_get_secret_plugin();
+		plugin->store_password(remminafile, key, value);
+	}
+}
+
 RemminaFile*
 remmina_file_dup(RemminaFile *remminafile)
 {
